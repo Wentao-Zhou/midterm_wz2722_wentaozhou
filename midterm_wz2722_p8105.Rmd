@@ -2,15 +2,13 @@
 title: "midterm_wz2722_p8105"
 author: "wentao zhou"
 date: "2024-10-21"
-output: "github_document"
+output: github_document
 ---
 Q1.Data import and cleaning
 Part 1.NYC rental data import and cleaning
 ```{r}
-# Load required libraries
 library(tidyverse)
 library(lubridate)
-library(janitor)
 library(rvest)
 
 # Step 1: Import and clean NYC rental data (ZORI)
@@ -129,7 +127,6 @@ Question 2: Quality Control and EDA
 
 Part 1. Why are some postal codes observed for less than 116 months?
 ```{r}
-
 months_per_zip <- merged_data %>%
   pivot_longer(cols = starts_with("x20"), names_to = "month", values_to = "rent_price") %>%
   group_by(region_name) %>%
@@ -141,8 +138,6 @@ num_zip_rental <- length(unique(merged_data$region_name))
 num_zip_zipcode <- length(unique(zip_codes_data$zip_code))
 cat("Number of ZIP codes in rental dataset:", num_zip_rental, "\n")
 cat("Number of ZIP codes in ZIP code dataset:", num_zip_zipcode, "\n")
-
-
 ```
 
 Possible reasons:
@@ -215,23 +210,33 @@ print(rental_price_change)
 
 ```
 Q3.Visualization
+Part 1.Plot NYC Rental Prices Over Time by Borough
 ```{r}
-
-# Create results directory if it doesn't exist
+# Ensure the results directory exists
 if (!dir.exists("results")) {
   dir.create("results")
 }
 
-#Step 1: Plot NYC Rental Prices Over Time by Borough
+# Reshape the rental data for plotting
+nyc_rental_long <- merged_data %>%
+  pivot_longer(
+    cols = starts_with("x20"), 
+    names_to = "month", 
+    values_to = "rent_price"
+  ) %>%
+  mutate(
+    month = ymd(str_remove_all(month, "x")),  # Convert month to Date format
+    year = year(month)  # Extract the year as a numeric value
+  )
 
-# Create the plot
-nyc_rental_plot <- rental_data_long %>%
+# Create the plot of NYC rental prices
+nyc_rental_plot <- nyc_rental_long %>%
   ggplot(aes(x = month, y = rent_price, color = borough)) +
-  geom_line(aes(group = region_name), alpha = 0.3) +
-  facet_wrap(~borough) +
+  geom_line(aes(group = region_name), alpha = 0.3) +  # Lighter lines for each ZIP code
+  facet_wrap(~borough) +  # Separate plots for each borough
   labs(
-    title = "NYC Rental Prices Over Time by Borough",
-    x = "Month",
+    title = "NYC Rental Prices within ZIP Codes for All Available Years",
+    x = "Year",
     y = "Rental Price (USD)",
     color = "Borough"
   ) +
@@ -240,7 +245,87 @@ nyc_rental_plot <- rental_data_long %>%
 # Save the plot to the results directory
 ggsave("results/nyc_rental_prices_plot.png", nyc_rental_plot, width = 10, height = 6)
 
-# Comment: Rental prices have generally increased across all boroughs, with dips during COVID-19.
+# Print confirmation message
+cat("NYC rental prices plot saved to 'results/nyc_rental_prices_plot.png'\n")
+
+#Comment:This plot shows rental price trends over time for each borough. Rental prices have generally increased across all boroughs. Notably:Manhattan exhibits the highest rental prices.Staten Island has the lowest rental prices.During the COVID-19 pandemic, rental prices dipped across several boroughs, especially in Manhattan and Brooklyn, reflecting the decline in urban demand during that period.
 
 ```
+
+Part 2.Compute and Plot Average House Prices in 2023
+```{r}
+zhvi_avg_2023 <- data_zhvi %>%
+  pivot_longer(cols = starts_with("x20"), names_to = "month", values_to = "house_price") %>%
+  group_by(region_name) %>%
+  summarize(avg_price_2023 = mean(house_price, na.rm = TRUE), .groups = "drop")
+
+
+# Summary 
+cat("Summary statistics for average house prices in 2023:\n")
+summary(zhvi_avg_2023$avg_price_2023)
+
+# Plot the distribution of house prices across ZIP codes
+zhvi_avg_2023_plot <- zhvi_avg_2023 %>%
+  ggplot(aes(x = avg_price_2023)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.7) +
+  labs(
+    title = "Distribution of ZIP-Code-Level House Prices Across States in 2023",
+    x = "Average House Price (USD)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Save the plot
+ggsave("results/zhvi_avg_2023_plot.png", zhvi_avg_2023_plot, width = 10, height = 6)
+
+# Print confirmation
+cat("Housing prices distribution plot saved to 'results/zhvi_avg_2023_plot.png'\n")
+
+```
+Part 3. Compare Rental and Housing Prices for NYC ZIP Codes in 2023
+
+```{r}
+# Compute average rental prices for 2023
+avg_rent_2023 <- nyc_rental_long %>%
+  filter(year(month) == 2023) %>%
+  group_by(region_name) %>%
+  summarize(avg_rent_2023 = mean(rent_price, na.rm = TRUE), .groups = "drop")
+
+# Merge rental and housing prices
+price_comparison_2023 <- avg_rent_2023 %>%
+  inner_join(zhvi_avg_2023, by = "region_name")
+
+# Create the comparison plot
+comparison_plot <- price_comparison_2023 %>%
+  ggplot(aes(x = avg_rent_2023, y = avg_price_2023)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    title = "Comparison of Rental and Housing Prices by ZIP Code in 2023",
+    x = "Average Rental Price (USD)",
+    y = "Average Housing Price (USD)"
+  ) +
+  theme_minimal()
+
+# Save the plot
+ggsave("results/comparison_plot.png", comparison_plot, width = 10, height = 6)
+
+# Print confirmation
+cat("Comparison plot saved to 'results/comparison_plot.png'\n")
+
+#Comment:The scatter plot shows a positive relationship between rental prices and housing prices: ZIP codes with higher average rental prices tend to have higher housing prices. However, the plot also reveals significant variability, suggesting that other factors, such as location, amenities, and market trends, may also influence prices.
+```
+
+Part 4.Limitations of the Dataset
+```{r}
+# Comment on dataset limitations
+cat("Limitations of the dataset:\n")
+cat("- Missing data for some ZIP codes and inconsistent rental data for certain months.\n")
+cat("- The dataset does not account for key factors such as neighborhood amenities, transportation, or economic conditions.\n")
+cat("- Seasonal fluctuations in rental and housing prices are not captured with annual averages.\n")
+cat("- Rental prices during the COVID-19 pandemic may show volatility, complicating trend analysis.\n")
+
+```
+
+
 
