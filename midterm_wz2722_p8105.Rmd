@@ -1,0 +1,246 @@
+---
+title: "midterm_wz2722_p8105"
+author: "wentao zhou"
+date: "2024-10-21"
+output: "github_document"
+---
+Q1.Data import and cleaning
+Part 1.NYC rental data import and cleaning
+```{r}
+# Load required libraries
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(rvest)
+
+# Step 1: Import and clean NYC rental data (ZORI)
+zori_data <- read_csv("Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv") %>%
+  clean_names() %>%
+  pivot_longer(cols = starts_with("x20"), 
+               names_to = "month", 
+               values_to = "rent_price") %>%
+  mutate(month = ymd(paste0(str_remove_all(month, "x"), "-01"))) %>%
+  filter(!is.na(rent_price))  # Remove rows with missing rental prices
+
+```
+
+Part 2.Import and Clean ZIP Code Data
+```{r}
+# Step 2: Import and clean ZIP code data from the HTML page
+url <- "https://p8105.com/data/zip_codes.html"
+zip_codes_data <- read_html(url) %>%
+  html_table(fill = TRUE) %>%
+  .[[1]] %>%
+  clean_names()  # Clean column names
+
+# Add a borough variable using county names
+zip_codes_data <- zip_codes_data %>%
+  mutate(borough = case_when(
+    county == "Bronx" ~ "Bronx",
+    county == "Kings" ~ "Brooklyn",
+    county == "New York" ~ "Manhattan",
+    county == "Queens" ~ "Queens",
+    county == "Richmond" ~ "Staten Island",
+    TRUE ~ NA_character_))
+
+```
+
+Merge Rental Data with ZIP Code Data
+```{r}
+
+# Step 3: Merge rental data with ZIP code data by matching ZIP codes
+# Ensure both columns are of character type before joining
+zori_data <- zori_data %>%
+  mutate(region_name = as.character(region_name))
+
+zip_codes_data <- zip_codes_data %>%
+  mutate(zip_code = as.character(zip_code))
+
+# Now perform the inner join
+zori_merged <- zori_data %>%
+  inner_join(zip_codes_data, by = c("region_name" = "zip_code"))
+# Print summary statistics
+cat("Total observations in rental data:", nrow(zori_merged), "\n")
+cat("Unique ZIP codes in rental data:", n_distinct(zori_merged$region_name), "\n")
+cat("Unique neighborhoods:", n_distinct(zori_merged$borough), "\n")
+
+```
+Part 4: Import and Clean US Housing Data
+```{r}
+# Step 4: Import and clean US housing data (ZHVI)
+zhvi_data <- read_csv("Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month_2023.csv") %>%
+  clean_names() %>%
+  pivot_longer(cols = starts_with("x20"), 
+               names_to = "month", 
+               values_to = "house_value") %>%
+  mutate(month = ymd(paste0(str_remove_all(month, "x"), "-01")))
+
+
+# Step 5: Merge housing data with ZIP code data
+# Convert both region_name and zip_code to character type
+zhvi_data <- zhvi_data %>%
+  mutate(region_name = as.character(region_name))
+
+zip_codes_data <- zip_codes_data %>%
+  mutate(zip_code = as.character(zip_code))
+
+# Perform the inner join
+zhvi_merged <- zhvi_data %>%
+  inner_join(zip_codes_data, by = c("region_name" = "zip_code"))
+
+# Check the merged data
+glimpse(zhvi_merged)
+
+# Print the summary of merged data
+cat("Total observations in merged housing data:", nrow(zhvi_merged), "\n")
+cat("Unique ZIP codes in merged housing data:", n_distinct(zhvi_merged$region_name), "\n")
+
+
+
+```
+Description of Summary of the Process
+
+1.Import and Clean NYC Rental Data (ZORI):
+
+Used clean_names() to standardize column names.
+Pivoted monthly rental prices to a long format using pivot_longer().
+Converted month columns to Date objects with ymd() and removed rows with missing rental prices.
+
+2.Import and Clean ZIP Code Data:
+
+Retrieved ZIP code data from the provided HTML page using rvest.
+Added a borough variable using case_when() based on county names.
+Merge Rental Data with ZIP Code Data:
+
+3.Converted region_name and zip_code columns to character type for merging.
+Merged rental data with ZIP code data using inner_join().
+
+4.Import and Clean US Housing Data (ZHVI):
+
+Cleaned and pivoted the housing data to a long format, similar to rental data.
+
+5.Merge Housing Data with ZIP Code Data:
+
+Merged housing data with ZIP code data using inner_join().
+
+
+
+Question 2: Quality Control and EDA
+
+Part 1. Why are some postal codes observed for less than 116 months?
+```{r}
+
+months_per_zip <- merged_data %>%
+  pivot_longer(cols = starts_with("x20"), names_to = "month", values_to = "rent_price") %>%
+  group_by(region_name) %>%
+  summarize(observations = sum(!is.na(rent_price)))
+
+cat("ZIP codes with fewer than 116 observations:", sum(months_per_zip$observations < 116), "\n")
+
+num_zip_rental <- length(unique(merged_data$region_name))
+num_zip_zipcode <- length(unique(zip_codes_data$zip_code))
+cat("Number of ZIP codes in rental dataset:", num_zip_rental, "\n")
+cat("Number of ZIP codes in ZIP code dataset:", num_zip_zipcode, "\n")
+
+
+```
+
+Possible reasons:
+Rent data may be collected midway, resulting in shorter time series for certain postal codes.
+
+Data missing issue.
+Some postal codes may no longer be used due to boundary changes.
+
+Possible reasons for differences:
+Some postal codes are not included in the rental dataset.
+The postal code system changes over time.
+
+Part 2. Average rent per administrative region and year
+```{r}
+
+# Convert the month column to Date format
+merged_data_long <- merged_data %>%
+  pivot_longer(
+    cols = starts_with("x20"), 
+    names_to = "month", 
+    values_to = "rent_price"
+  ) %>%
+  mutate(
+    month = ymd(str_remove_all(month, "x"))  # Remove 'x' and convert to Date
+  )
+# Step 4: Create a table of average rental prices by borough and year
+nyc_rental_yearly <- merged_data %>%
+  pivot_longer(
+    cols = starts_with("x20"), 
+    names_to = "month", 
+    values_to = "rent_price"
+  ) %>%
+  mutate(
+    month = ymd(str_remove_all(month, "x")),  # Convert to Date
+    year = year(month)  
+  ) %>%
+  group_by(borough, year) %>%
+  summarize(
+    avg_rent_price = mean(rent_price, na.rm = TRUE), 
+    .groups = "drop"
+  ) %>%
+  arrange(borough, year)
+
+# Print the table
+print(nyc_rental_yearly)
+
+# Step 5: Compare rental prices in January 2021 vs January 2020
+rental_price_change <- merged_data %>%
+  pivot_longer(
+    cols = starts_with("x20"), 
+    names_to = "month", 
+    values_to = "rent_price"
+  ) %>%
+  mutate(month = ymd(str_remove_all(month, "x"))) %>%
+  filter(month %in% c(ymd("2020-01-31"), ymd("2021-01-31"))) %>%
+  pivot_wider(
+    names_from = month, 
+    values_from = rent_price
+  ) %>%
+  mutate(price_drop = `2020-01-31` - `2021-01-31`) %>%
+  group_by(borough) %>%
+  filter(price_drop == max(price_drop, na.rm = TRUE)) %>%
+  select(borough, region_name, price_drop)
+
+# Print the result
+print(rental_price_change)
+
+# Comment: Rental prices have generally increased over the years, 
+# with notable fluctuations during the COVID-19 pandemic, especially in Manhattan and Brooklyn.
+
+```
+Q3.Visualization
+```{r}
+
+# Create results directory if it doesn't exist
+if (!dir.exists("results")) {
+  dir.create("results")
+}
+
+#Step 1: Plot NYC Rental Prices Over Time by Borough
+
+# Create the plot
+nyc_rental_plot <- rental_data_long %>%
+  ggplot(aes(x = month, y = rent_price, color = borough)) +
+  geom_line(aes(group = region_name), alpha = 0.3) +
+  facet_wrap(~borough) +
+  labs(
+    title = "NYC Rental Prices Over Time by Borough",
+    x = "Month",
+    y = "Rental Price (USD)",
+    color = "Borough"
+  ) +
+  theme_minimal()
+
+# Save the plot to the results directory
+ggsave("results/nyc_rental_prices_plot.png", nyc_rental_plot, width = 10, height = 6)
+
+# Comment: Rental prices have generally increased across all boroughs, with dips during COVID-19.
+
+```
+
